@@ -1,14 +1,17 @@
 # app.py
-import sqlite3
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+# Importa as funções de conexão com o banco de dados do novo arquivo 'database.py'
 from database import init_db, get_db_connection
-import os
+import psycopg2 # Importa psycopg2 para tratamento de erros específicos
+import psycopg2.extras # Necessário para RealDictCursor, usado em get_producoes e get_config
 
 app = Flask(__name__)
 CORS(app) # Habilita CORS para todas as rotas, permitindo que seu frontend se conecte
 
-# Inicializa o banco de dados quando a aplicação Flask inicia
+# Inicializa o banco de dados quando a aplicação Flask inicia.
+# Leia os comentários no arquivo database.py sobre o uso de init_db() em produção.
 with app.app_context():
     init_db()
 
@@ -16,26 +19,32 @@ with app.app_context():
 
 @app.route('/api/producoes', methods=['GET'])
 def get_producoes():
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    ano = request.args.get('ano')
-    mes = request.args.get('mes')
+        ano = request.args.get('ano')
+        mes = request.args.get('mes')
 
-    sql = 'SELECT * FROM producoes'
-    params = []
+        sql = 'SELECT * FROM producoes'
+        params = []
 
-    if ano and mes:
-        # Filtra por ano e mês (SQLite substr é 1-based index)
-        sql += ' WHERE substr(data, 1, 4) = ? AND substr(data, 6, 2) = ?'
-        params = [ano, mes.zfill(2)] # zfill(2) garante que o mês tenha 2 dígitos (ex: '7' vira '07')
+        if ano and mes:
+            # CORREÇÃO AQUI: Usa SUBSTRING() e %s para PostgreSQL
+            sql += ' WHERE SUBSTRING(data, 1, 4) = %s AND SUBSTRING(data, 6, 2) = %s'
+            params = [ano, mes.zfill(2)]
 
-    sql += ' ORDER BY data ASC'
+        sql += ' ORDER BY data ASC'
 
-    cursor.execute(sql, params)
-    producoes = cursor.fetchall()
-    conn.close()
-    return jsonify([dict(row) for row in producoes]) # Converte para lista de dicionários
+        cursor.execute(sql, params)
+        producoes = cursor.fetchall()
+        return jsonify(producoes)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/producoes', methods=['POST'])
 def add_or_update_producao():
@@ -44,59 +53,84 @@ def add_or_update_producao():
     is_excecao = request.json.get('is_excecao')
     operadores_no_dia = request.json.get('operadores_no_dia')
 
+    # Validação básica dos dados de entrada
     if not all([data, producao is not None, is_excecao is not None, operadores_no_dia is not None]):
         return jsonify({'error': 'Dados incompletos. Forneça data, producao, is_excecao e operadores_no_dia.'}), 400
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # Tenta inserir. Se a data já existe, atualiza.
-    sql = '''
-        INSERT INTO producoes (data, producao, is_excecao, operadores_no_dia)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(data) DO UPDATE SET
-            producao = EXCLUDED.producao,
-            is_excecao = EXCLUDED.is_excecao,
-            operadores_no_dia = EXCLUDED.operadores_no_dia
-    '''
+    conn = None
     try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Tenta inserir. Se a data já existe (ON CONFLICT), atualiza o registro existente.
+        # A sintaxe ON CONFLICT é válida para PostgreSQL.
+        # Usa %s para placeholders e RETURNING para obter o 'data' da linha afetada.
+        sql = '''
+            INSERT INTO producoes (data, producao, is_excecao, operadores_no_dia)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT(data) DO UPDATE SET
+                producao = EXCLUDED.producao,
+                is_excecao = EXCLUDED.is_excecao,
+                operadores_no_dia = EXCLUDED.operadores_no_dia
+            RETURNING data; -- Retorna a chave primária da linha inserida/atualizada
+        '''
         cursor.execute(sql, (data, producao, is_excecao, operadores_no_dia))
-        conn.commit()
-        return jsonify({'message': 'Produção salva com sucesso!', 'id': cursor.lastrowid}), 201
-    except sqlite3.Error as e:
+        conn.commit() # Confirma as alterações no banco de dados
+
+        # Obtém o resultado do RETURNING
+        result = cursor.fetchone()
+        return jsonify({'message': 'Produção salva com sucesso!', 'data_id': result[0] if result else None}), 201
+    except psycopg2.Error as e: # Captura erros específicos do Psycopg2 (erros de banco de dados)
+        conn.rollback() # Desfaz a transação em caso de erro
+        return jsonify({'error': str(e)}), 500
+    except Exception as e: # Captura outros erros gerais
         conn.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 @app.route('/api/producoes/<string:data>', methods=['DELETE'])
 def delete_producao(data):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-    cursor.execute('DELETE FROM producoes WHERE data = ?', (data,))
-    conn.commit()
+        # Usa %s para placeholders no DELETE
+        cursor.execute('DELETE FROM producoes WHERE data = %s', (data,))
+        conn.commit()
 
-    if cursor.rowcount == 0: # Verifica se alguma linha foi afetada
-        conn.close()
-        return jsonify({'message': 'Registro não encontrado para exclusão.'}), 404
+        if cursor.rowcount == 0: # Verifica se alguma linha foi afetada pela exclusão
+            return jsonify({'message': 'Registro não encontrado para exclusão.'}), 404
 
-    conn.close()
-    return jsonify({'message': 'Registro excluído com sucesso!'}), 200
+        return jsonify({'message': 'Registro excluído com sucesso!'}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 # --- Rotas para Configurações ---
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute('SELECT chave, valor FROM configuracoes')
-    configs = cursor.fetchall()
-    conn.close()
+        cursor.execute('SELECT chave, valor FROM configuracoes')
+        configs = cursor.fetchall()
 
-    config_dict = {row['chave']: row['valor'] for row in configs}
-    return jsonify(config_dict)
+        config_dict = {row['chave']: row['valor'] for row in configs}
+        return jsonify(config_dict)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/config/<string:chave>', methods=['PUT'])
 def update_config(chave):
@@ -105,21 +139,28 @@ def update_config(chave):
     if valor is None:
         return jsonify({'error': 'Valor da configuração não fornecido.'}), 400
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-    cursor.execute('UPDATE configuracoes SET valor = ? WHERE chave = ?', (valor, chave))
-    conn.commit()
+        # Usa %s para placeholders no UPDATE
+        cursor.execute('UPDATE configuracoes SET valor = %s WHERE chave = %s', (valor, chave))
+        conn.commit()
 
-    if cursor.rowcount == 0:
-        conn.close()
-        return jsonify({'message': 'Chave de configuração não encontrada para atualização.'}), 404
+        if cursor.rowcount == 0:
+            return jsonify({'message': 'Chave de configuração não encontrada para atualização.'}), 404
 
-    conn.close()
-    return jsonify({'message': f"Configuração '{chave}' atualizada com sucesso!"}), 200
+        return jsonify({'message': f"Configuração '{chave}' atualizada com sucesso!"}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 if __name__ == '__main__':
-    # Inicia o servidor Flask.
-    # No Render, o servidor será iniciado de outra forma (gunicorn),
-    # mas para testes locais, este é o comando.
-    app.run(debug=True, port=os.environ.get('PORT', 5000)) # Porta padrão 5000 para Flask
+    # Inicia o servidor Flask para desenvolvimento local.
+    # No Render, o servidor será iniciado pelo Gunicorn (com o comando 'gunicorn app:app').
+    # A porta é obtida da variável de ambiente PORT (usada pelo Render) ou padrão 5000.
+    app.run(debug=True, port=int(os.environ.get('PORT', 5000)))
