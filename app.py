@@ -62,14 +62,13 @@ def add_producao():
     try:
         data = request.json['data']
         producao = request.json['producao']
-        is_excecao = request.json['is_excecao']
+        # CORREÇÃO AQUI: Converte o valor de is_excecao para booleano
+        is_excecao = bool(request.json['is_excecao']) 
         operadores_no_dia = request.json['operadores_no_dia']
 
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # No PostgreSQL, os placeholders são %s, não ?.
-        # ON CONFLICT (data) DO UPDATE SET ... é para atualizar se a data já existe (upsert).
         cursor.execute('''
             INSERT INTO producoes (data, producao, is_excecao, operadores_no_dia)
             VALUES (%s, %s, %s, %s)
