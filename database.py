@@ -22,8 +22,7 @@ def get_db_connection():
             password=url.password,
             sslmode='require'
         )
-        # REMOVA A LINHA ABAIXO, pois o RealDictCursor é definido no cursor, não na conexão.
-        # conn.row_factory = psycopg2.extras.DictCursor
+        # A linha conn.row_factory = psycopg2.extras.DictCursor já foi removida/comentada
         return conn
     except Exception as e:
         print(f"Erro ao conectar ao banco de dados: {e}")
@@ -31,13 +30,15 @@ def get_db_connection():
 
 def init_db():
     """
-    Inicializa o esquema do banco de dados (cria tabelas se não existirem).
+    Inicializa o esquema do banco de dados (cria tabelas se não existirem)
+    e insere configurações padrão se não existirem.
     """
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
 
+        # Cria a tabela 'producoes'
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS producoes (
                 data TEXT PRIMARY KEY,
@@ -47,12 +48,28 @@ def init_db():
             );
         ''')
 
+        # Cria a tabela 'configuracoes'
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS configuracoes (
                 chave TEXT PRIMARY KEY,
                 valor TEXT NOT NULL
             );
         ''')
+
+        # INSERE VALOR PADRÃO PARA num_operadores_padrao SE NÃO EXISTIR
+        # ON CONFLICT DO NOTHING é a forma PostgreSQL de INSERT OR IGNORE
+        cursor.execute('''
+            INSERT INTO configuracoes (chave, valor)
+            VALUES ('num_operadores_padrao', '13')
+            ON CONFLICT (chave) DO NOTHING;
+        ''')
+
+        # Você pode adicionar outras configurações padrão aqui se tiver:
+        # cursor.execute('''
+        #     INSERT INTO configuracoes (chave, valor)
+        #     VALUES ('pacotes_por_operador_dia_meta', '450')
+        #     ON CONFLICT (chave) DO NOTHING;
+        # ''')
 
         conn.commit()
         print("Banco de dados inicializado com sucesso.")
