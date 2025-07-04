@@ -16,31 +16,32 @@ with app.app_context():
     init_db()
 
 # --- Rotas para Produções ---
-
-@app.route('/api/producoes', methods=['GET'])
-def get_producoes():
+@app.route('/api/producoes', methods=['POST'])
+def add_producao():
     conn = None
     try:
+        data = request.json['data']
+        producao = request.json['producao']
+        is_excecao = request.json['is_excecao']
+        operadores_no_dia = request.json['operadores_no_dia']
+
         conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor = conn.cursor()
 
-        ano = request.args.get('ano')
-        mes = request.args.get('mes')
-
-        sql = 'SELECT * FROM producoes'
-        params = []
-
-        if ano and mes:
-            # CORREÇÃO AQUI: Usa SUBSTRING() e %s para PostgreSQL
-            sql += ' WHERE SUBSTRING(data, 1, 4) = %s AND SUBSTRING(data, 6, 2) = %s'
-            params = [ano, mes.zfill(2)]
-
-        sql += ' ORDER BY data ASC'
-
-        cursor.execute(sql, params)
-        producoes = cursor.fetchall()
-        return jsonify(producoes)
+        # CORREÇÃO AQUI: Usa %s para placeholders e ON CONFLICT para upsert no PostgreSQL
+        cursor.execute('''
+            INSERT INTO producoes (data, producao, is_excecao, operadores_no_dia)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (data) DO UPDATE SET
+                producao = EXCLUDED.producao,
+                is_excecao = EXCLUDED.is_excecao,
+                operadores_no_dia = EXCLUDED.operadores_no_dia
+        ''', (data, producao, is_excecao, operadores_no_dia))
+        
+        conn.commit()
+        return jsonify({'message': 'Produção salva/atualizada com sucesso!'}), 201
     except Exception as e:
+        print(f"Erro ao salvar produção: {e}")
         return jsonify({'error': str(e)}), 500
     finally:
         if conn:
