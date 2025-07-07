@@ -108,8 +108,8 @@ def delete_producao(data_producao):
         if conn:
             conn.close()
 
-# Rota para obter todas as configurações
-@app.route('/api/config', methods=['GET'])
+# Rota para obter todas as configurações (AGORA NO PLURAL)
+@app.route('/api/configs', methods=['GET'])
 def get_all_configs():
     conn = None
     try:
@@ -126,31 +126,69 @@ def get_all_configs():
         if conn:
             conn.close()
 
-# Rota para atualizar uma configuração específica (ex: num_operadores_padrao)
-@app.route('/api/config/<string:chave>', methods=['PUT'])
-def update_config(chave):
+# Rota para atualizar uma configuração específica (ex: num_operadores_padrao) (AGORA NO PLURAL)
+@app.route('/api/configs', methods=['PUT']) # Alterado para PUT no endpoint geral /configs
+def update_config():
     conn = None
     try:
-        valor = request.json['valor']
+        # Espera um JSON como {"num_operadores_padrao": 15}
+        data = request.json
+        if 'num_operadores_padrao' not in data:
+            return jsonify({'error': 'Campo num_operadores_padrao é obrigatório.'}), 400
+
+        valor = str(data['num_operadores_padrao']) # Garante que o valor é string para o banco
+        chave = 'num_operadores_padrao' # A chave é fixa para esta rota
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        # No PostgreSQL, os placeholders são %s, não ?.
+        
+        # Tenta atualizar primeiro
         cursor.execute('UPDATE configuracoes SET valor = %s WHERE chave = %s', (valor, chave))
         conn.commit()
-        if cursor.rowcount > 0:
-            return jsonify({'message': f'Configuração {chave} atualizada com sucesso!'}), 200
+
+        if cursor.rowcount == 0:
+            # Se não atualizou, significa que não existia, então insere
+            cursor.execute('INSERT INTO configuracoes (chave, valor) VALUES (%s, %s)', (chave, valor))
+            conn.commit()
+            return jsonify({'message': f'Configuração {chave} inserida com sucesso!'}), 201
         else:
-            # Se a chave não existe, podemos inserir em vez de retornar 404
-            # ou manter 404 se a intenção é só atualizar existentes
-            # Por enquanto, vamos manter o comportamento de atualizar apenas.
-            return jsonify({'message': f'Configuração {chave} não encontrada para atualização.'}), 404
+            return jsonify({'message': f'Configuração {chave} atualizada com sucesso!'}), 200
     except Exception as e:
-        print(f"Erro ao atualizar configuração: {e}")
+        print(f"Erro ao atualizar/inserir configuração: {e}")
         return jsonify({'error': str(e)}), 500
     finally:
         if conn:
             conn.close()
 
+# Rota para criar configurações padrão (se não existirem)
+@app.route('/api/configs', methods=['POST'])
+def create_default_configs():
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Verifica se 'num_operadores_padrao' já existe
+        cursor.execute("SELECT COUNT(*) FROM configuracoes WHERE chave = 'num_operadores_padrao'")
+        exists = cursor.fetchone()[0]
+
+        if exists == 0:
+            # Insere a configuração padrão se não existir
+            cursor.execute("INSERT INTO configuracoes (chave, valor) VALUES (%s, %s)", ('num_operadores_padrao', '13'))
+            conn.commit()
+            return jsonify({'message': 'Configurações padrão criadas com sucesso!', 'num_operadores_padrao': 13}), 201
+        else:
+            # Se já existe, apenas retorna a configuração existente
+            cursor.execute("SELECT valor FROM configuracoes WHERE chave = 'num_operadores_padrao'")
+            current_value = cursor.fetchone()[0]
+            return jsonify({'message': 'Configurações já existem.', 'num_operadores_padrao': int(current_value)}), 200
+    except Exception as e:
+        print(f"Erro ao criar configurações padrão: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
 if __name__ == '__main__':
     app.run(debug=True)
-
