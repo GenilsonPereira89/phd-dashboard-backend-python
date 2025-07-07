@@ -55,7 +55,7 @@ def get_producoes():
         if conn:
             conn.close()
 
-# Rota para adicionar ou atualizar uma produção
+# Rota para adicionar ou atualizar uma produção (via POST)
 @app.route('/api/producoes', methods=['POST'])
 def add_producao():
     conn = None
@@ -86,6 +86,43 @@ def add_producao():
     finally:
         if conn:
             conn.close()
+
+# --- NOVA ROTA PARA ATUALIZAR UMA PRODUÇÃO ESPECÍFICA (VIA PUT) ---
+@app.route('/api/producoes/<string:data_producao>', methods=['PUT'])
+def update_producao(data_producao):
+    conn = None
+    try:
+        data = request.json
+        nova_producao = data.get('producao')
+        novos_operadores = data.get('operadores_no_dia')
+        # is_excecao = data.get('is_excecao') # O frontend está mantendo o valor original para is_excecao, mas pode ser atualizado aqui se necessário
+
+        if nova_producao is None or novos_operadores is None:
+            return jsonify({'error': 'Dados de produção ou operadores ausentes.'}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Atualiza a produção e os operadores para a data específica
+        cursor.execute('''
+            UPDATE producoes
+            SET producao = %s, operadores_no_dia = %s
+            WHERE data = %s
+        ''', (nova_producao, novos_operadores, data_producao))
+        
+        conn.commit()
+
+        if cursor.rowcount > 0:
+            return jsonify({'message': f'Produção para {data_producao} atualizada com sucesso!'}), 200
+        else:
+            return jsonify({'message': 'Produção não encontrada para esta data.'}), 404
+    except Exception as e:
+        print(f"Erro ao atualizar produção: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+# --- FIM DA NOVA ROTA ---
 
 # Rota para excluir uma produção
 @app.route('/api/producoes/<string:data_producao>', methods=['DELETE'])
@@ -153,4 +190,3 @@ def update_config(chave):
 
 if __name__ == '__main__':
     app.run(debug=True)
-
