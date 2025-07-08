@@ -34,10 +34,9 @@ def get_producoes():
         ano = request.args.get('ano')
         mes = request.args.get('mes')
 
-        # Adicionei 'diaristas_no_dia' explicitamente na seleção para clareza,
-        # mas 'SELECT *' também funcionaria uma vez que a coluna é adicionada no DB.
+        # Adicionei 'diaristas_no_dia' explicitamente na seleção para clareza
         sql = 'SELECT id, data, producao, is_excecao, operadores_no_dia, diaristas_no_dia FROM producoes'
-        params = [] # <!-- CORREÇÃO: Inicializa params aqui -->
+        params = [] # Inicializa params aqui para garantir que sempre exista
 
         if ano and mes:
             sql += ' WHERE SUBSTRING(data, 1, 4) = %s AND SUBSTRING(data, 6, 2) = %s'
@@ -64,7 +63,8 @@ def add_producao():
         producao = request.json['producao']
         is_excecao = bool(request.json['is_excecao'])
         operadores_no_dia = request.json['operadores_no_dia']
-        diaristas_no_dia = request.json.get('diaristas_no_dia', 0) # <!-- DESCOMENTADO e com padrão 0 -->
+        # Pega o valor de 'diaristas_no_dia' do JSON, com padrão 0 se não for enviado
+        diaristas_no_dia = request.json.get('diaristas_no_dia', 0) 
 
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -77,9 +77,9 @@ def add_producao():
                 is_excecao = EXCLUDED.is_excecao,
                 operadores_no_dia = EXCLUDED.operadores_no_dia,
                 diaristas_no_dia = EXCLUDED.diaristas_no_dia
-        ''', (data, producao, is_excecao, operadores_no_dia, diaristas_no_dia)) # <!-- DESCOMENTADO -->
+        ''', (data, producao, is_excecao, operadores_no_dia, diaristas_no_dia))
 
-        conn.commit() # <!-- DESCOMENTADO -->
+        conn.commit()
         return jsonify({'message': 'Produção salva/atualizada com sucesso!'}), 201
     except Exception as e:
         print(f"Erro ao salvar produção: {e}")
