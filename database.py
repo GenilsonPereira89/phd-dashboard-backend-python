@@ -17,8 +17,9 @@ def init_db():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # PRIMEIRA TENTATIVA: Criar a tabela 'producoes' completa se ela NÃO EXISTE.
+        # Criação da tabela 'producoes' com todas as colunas necessárias
         # Este comando usa 'IF NOT EXISTS' para não gerar erro se a tabela já existir.
+        # Se a tabela já existe e tem a coluna 'id' como PK, este CREATE TABLE será ignorado.
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS producoes (
                 id SERIAL PRIMARY KEY,
@@ -33,7 +34,7 @@ def init_db():
         conn.commit()
 
         # REMOVIDO: O BLOCO QUE TENTAVA ADICIONAR A COLUNA 'id' COM ALTER TABLE.
-        # Os logs confirmam que 'id' já existe como PRIMARY KEY.
+        # Os logs confirmam que 'id' já existe como PRIMARY KEY, então este bloco era o problema.
 
         # TENTATIVA: Adicionar a coluna 'diaristas_no_dia' se ela não existir
         # Usa information_schema para verificar a existência da coluna de forma segura.
@@ -51,6 +52,7 @@ def init_db():
             else:
                 print("Coluna 'diaristas_no_dia' já existe.")
         except ProgrammingError as e:
+            # Este erro pode ocorrer se a tabela 'producoes' não existisse (mas agora ela deveria existir).
             if "relation \"producoes\" does not exist" in str(e):
                 print("Tabela 'producoes' ainda não existe. Ignorando ALTER COLUMN diaristas_no_dia.")
                 conn.rollback()
@@ -65,7 +67,7 @@ def init_db():
             conn.rollback()
             raise e
 
-        # Criação da tabela 'configuracoes'
+        # Criação da tabela 'configuracoes' (sempre com IF NOT EXISTS)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS configuracoes (
                 id SERIAL PRIMARY KEY,
