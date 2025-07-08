@@ -36,7 +36,8 @@ def get_producoes():
 
         # Adicionei 'diaristas_no_dia' explicitamente na seleção para clareza,
         # mas 'SELECT *' também funcionaria uma vez que a coluna é adicionada no DB.
-        sql = 'SELECT id, data, producao, is_excecao, operadores_no_dia, diaristas_no_dia FROM producoes' # params = []
+        sql = 'SELECT id, data, producao, is_excecao, operadores_no_dia, diaristas_no_dia FROM producoes'
+        params = [] # <!-- CORREÇÃO: Inicializa params aqui -->
 
         if ano and mes:
             sql += ' WHERE SUBSTRING(data, 1, 4) = %s AND SUBSTRING(data, 6, 2) = %s'
@@ -63,17 +64,22 @@ def add_producao():
         producao = request.json['producao']
         is_excecao = bool(request.json['is_excecao'])
         operadores_no_dia = request.json['operadores_no_dia']
-        # diaristas_no_dia = request.json.get('diaristas_no_dia', 0)
+        diaristas_no_dia = request.json.get('diaristas_no_dia', 0) # <!-- DESCOMENTADO e com padrão 0 -->
 
         conn = get_db_connection()
         cursor = conn.cursor()
 
         cursor.execute('''
-            INSERT INTO producoes (data, producao, is_excecao, operadores_no_dia, diaristas_no_dia) -- VALUES (%s, %s, %s, %s, %s) -- ON CONFLICT (data) DO UPDATE SET
+            INSERT INTO producoes (data, producao, is_excecao, operadores_no_dia, diaristas_no_dia)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (data) DO UPDATE SET
                 producao = EXCLUDED.producao,
                 is_excecao = EXCLUDED.is_excecao,
                 operadores_no_dia = EXCLUDED.operadores_no_dia,
-                diaristas_no_dia = EXCLUDED.diaristas_no_dia -- ''', (data, producao, is_excecao, operadores_no_dia, diaristas_no_dia)) # conn.commit()
+                diaristas_no_dia = EXCLUDED.diaristas_no_dia
+        ''', (data, producao, is_excecao, operadores_no_dia, diaristas_no_dia)) # <!-- DESCOMENTADO -->
+
+        conn.commit() # <!-- DESCOMENTADO -->
         return jsonify({'message': 'Produção salva/atualizada com sucesso!'}), 201
     except Exception as e:
         print(f"Erro ao salvar produção: {e}")
@@ -81,8 +87,6 @@ def add_producao():
     finally:
         if conn:
             conn.close()
-
-# ... (o restante do seu app.py permanece inalterado) ...
 
 # Rota para excluir uma produção
 @app.route('/api/producoes/<string:data_producao>', methods=['DELETE'])
