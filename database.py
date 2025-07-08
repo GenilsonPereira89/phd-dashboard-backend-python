@@ -71,4 +71,3 @@ def init_db():
     finally:
         if conn:
             conn.close()
-
